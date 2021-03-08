@@ -1,5 +1,6 @@
 import sys
 import io
+import serial
 import folium # pip install folium
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QMessageBox
@@ -32,6 +33,8 @@ class MyApp(QWidget):
         #self.window_width, self.window_height = 800, 600
         #self.setMinimumSize(self.window_width, self.window_height)
         
+        self.ser = serial.Serial('\\.\COM5', baudrate=115200)
+        
         self.markers_pull = []
         self.count = 0
         
@@ -42,6 +45,11 @@ class MyApp(QWidget):
         button_layout.addStretch(0)
         self.layout.addLayout(button_layout)
         
+        read_from_uart_button = QtWidgets.QPushButton()
+        read_from_uart_button.setText("Прочитать даные из UART")
+        read_from_uart_button.setFixedWidth(500)
+        button_layout.insertWidget(0, read_from_uart_button)
+        read_from_uart_button.clicked.connect(self.read_from_uart)
         
         bluetooth_list_button = QtWidgets.QPushButton()
         bluetooth_list_button.setText("Список устройств")
@@ -98,6 +106,8 @@ class MyApp(QWidget):
         
 
     def create_marker(self):
+    
+    
         text, ok = QInputDialog.getText(self, 'Input Dialog',
             'Введите данные(не используйте запятые!):')
         if ok:
@@ -106,7 +116,6 @@ class MyApp(QWidget):
                 x = float(values[0])
                 y = float(values[1])
                 name = values[2]
-                print("Hello!")
             except:
                 print("Exception occured!")
             else:
@@ -123,26 +132,48 @@ class MyApp(QWidget):
                 self.m.save(data, close_file=False)
                 self.webView.setHtml(data.getvalue().decode())
 
+        
+    def delete_marker(self, event=None, name=None):
+        if name == None:
+            text, ok = QInputDialog.getText(self, 'Input Dialog',
+                'Введите данные(не используйте запятые!):')
+            if ok:
+                for i in range(len(self.markers_pull)):
+                    if self.markers_pull[i].name == text:
+                        del self.markers_pull[i]
+                        coordinate = self.m.location
+                        del self.m
+                        self.count = self.count - 1
+                        self.layout.removeWidget(self.webView)
+                        # coordinate = (55.9321525, 37.5282565)
+                        self.m = folium.Map(
+                            tiles='Stamen Terrain',
+                            zoom_start=14.5,
+                            location=coordinate
+                        )
+                        for element in self.markers_pull:
+                            element.marker.add_to(self.m)
+                        data = io.BytesIO()
+                        self.m.save(data, close_file=False)
 
-
-    def delete_marker(self):
-        text, ok = QInputDialog.getText(self, 'Input Dialog',
-            'Введите данные(не используйте запятые!):')
-        if ok:
+                        self.webView = QWebEngineView()
+                        self.webView.move(100, 100)
+                        self.webView.setHtml(data.getvalue().decode())
+                        self.layout.addWidget(self.webView)
+                        return
+                QMessageBox.about(self, "Ошибка", "Нет такой метки!")
+        else:
             for i in range(len(self.markers_pull)):
-                print('текущее значение итератора', i)
-                if self.markers_pull[i].name == text:
-                    print('found!')
+                if self.markers_pull[i].name == name:
                     del self.markers_pull[i]
-                    for a in self.markers_pull:
-                        print(a)
+                    coordinate = self.m.location
                     del self.m
+                    self.count = self.count - 1
                     self.layout.removeWidget(self.webView)
-                    coordinate = (55.9321525, 37.5282565)
                     self.m = folium.Map(
-                        tiles='Stamen Terrain',
-                        zoom_start=13,
-                        location=coordinate
+                         tiles='Stamen Terrain',
+                         zoom_start=14.5,
+                         location=coordinate
                     )
                     for element in self.markers_pull:
                         element.marker.add_to(self.m)
@@ -154,7 +185,6 @@ class MyApp(QWidget):
                     self.webView.setHtml(data.getvalue().decode())
                     self.layout.addWidget(self.webView)
                     return
-            QMessageBox.about(self, "Ошибка", "Нет такой метки!")
                     
         
                         
@@ -183,7 +213,37 @@ class MyApp(QWidget):
                 data = io.BytesIO()
                 self.m.save(data, close_file=False)
                 self.webView.setHtml(data.getvalue().decode())
-         
+                
+                
+    def refresh_marker(self, x, y, name):
+        for i in range(len(self.markers_pull)):
+            if self.markers_pull[i].name == name:
+                self.delete_marker(name=name)
+                break
+                
+        self.markers_pull.append(MyMarker(x, y, name))
+        self.markers_pull[self.count].marker.add_to(self.m)
+        self.count += 1
+        self.m.location = (x, y)
+        data = io.BytesIO()
+        self.m.save(data, close_file=False)
+        self.webView.setHtml(data.getvalue().decode())
+                
+
+    def read_from_uart(self):
+        line = self.ser.readline()
+        print('сама строка ', line)
+        line = line[:-2]
+        dictionary = eval(line)
+        x = dictionary["Latitude"]
+        y = dictionary["Longitude"]
+        print(dictionary)
+        print('x=', x)
+        print('y=', y)
+        name = 'from uart'
+        self.refresh_marker(x, y, name)
+        
+                
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
@@ -195,7 +255,7 @@ if __name__ == '__main__':
     
     myApp = MyApp()
     myApp.showMaximized()
-
+    
     try:
         sys.exit(app.exec_())
     except SystemExit:
